@@ -1,0 +1,41 @@
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Response
+from sqlalchemy.orm import Session
+from src.database import get_db
+from src.schemas.moderation import ModerationEventRequest
+from src.services.moderation_service import apply_moderation_decision
+from src.core.config import settings
+
+router = APIRouter(prefix="/api/v1", tags=["B2B: Moderation Events"])
+
+
+@router.post(
+    "/moderation/events",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Приём событий от Moderation Service"
+)
+def handle_moderation_event(
+    payload: ModerationEventRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    x_service_key: str | None = Header(None, alias="X-Service-Key")
+):
+    if not x_service_key or x_service_key != settings.INTERNAL_SERVICE_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid X-Service-Key"
+        )
+
+    try:
+        result = apply_moderation_decision(db, payload, sender_service="moderation")
+
+        if result["status"] == "duplicate":
+            response.headers["X-Idempotent-Replay"] = "true"
+
+        return None
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
