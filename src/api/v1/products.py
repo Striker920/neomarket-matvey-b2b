@@ -5,7 +5,6 @@ from src.services.moderation_service import update_product_by_seller
 
 router = APIRouter(prefix="/api/v1/products", tags=["B2B: Products"])
 
-
 @router.put("/{product_id}")
 def update_product(
     product_id: str,

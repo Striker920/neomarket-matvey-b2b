@@ -1,20 +1,18 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from sqlalchemy import Column, String, Integer, DateTime, JSON, ForeignKey, Enum as SAEnum, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, JSON, ForeignKey, Enum as SAEnum
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
-
 class ProductStatus(str, Enum):
-    DRAFT = "draft"
-    ON_MODERATION = "on_moderation"
-    MODERATED = "moderated"
-    BLOCKED = "blocked"
-    HARD_BLOCKED = "hard_blocked"
-    ARCHIVED = "archived"
-
+    DRAFT = "DRAFT"
+    ON_MODERATION = "ON_MODERATION"
+    MODERATED = "MODERATED"
+    BLOCKED = "BLOCKED"
+    HARD_BLOCKED = "HARD_BLOCKED"
+    ARCHIVED = "ARCHIVED"
 
 class Product(Base):
     __tablename__ = "products"
@@ -25,9 +23,7 @@ class Product(Base):
     block_reason = Column(String(500), nullable=True)
     blocking_reason_id = Column(String(36), nullable=True)
     field_reports = Column(JSON, nullable=True)
-
     skus = relationship("SKU", back_populates="product", cascade="all, delete-orphan")
-
 
 class SKU(Base):
     __tablename__ = "skus"
@@ -37,22 +33,17 @@ class SKU(Base):
     price = Column(Integer, nullable=False)
     stock_quantity = Column(Integer, default=0, nullable=False)
     article = Column(String(64), nullable=True, unique=True)
-
     product = relationship("Product", back_populates="skus")
     images = relationship("SKUImage", back_populates="sku", cascade="all, delete-orphan")
-
 
 class SKUImage(Base):
     __tablename__ = "sku_images"
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     sku_id = Column(String(36), ForeignKey("skus.id"), nullable=False)
     url = Column(String(512), nullable=False)
-
     sku = relationship("SKU", back_populates="images")
 
-
 class ModerationEventOutbox(Base):
-    """Outbox для событий от B2B в Moderation (US-B2B-02)"""
     __tablename__ = "moderation_event_outbox"
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     event_type = Column(String(50), nullable=False)
@@ -62,19 +53,16 @@ class ModerationEventOutbox(Base):
     status = Column(String(20), default="pending")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
 class B2CCascadeOutbox(Base):
-    """Outbox для каскадных событий в B2C (US-B2B-09)"""
     __tablename__ = "b2c_cascade_outbox"
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     event_type = Column(String(50), nullable=False)
     product_id = Column(String(36), nullable=False)
     payload = Column(JSON, nullable=False)
+    status = Column(String(20), default="pending")  # <-- ЭТО ПОЛЕ ДОЛЖНО БЫТЬ!
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
 class ProcessedEvent(Base):
-    """Inbox для идемпотентности входящих событий (US-B2B-09)"""
     __tablename__ = "processed_events"
     idempotency_key = Column(String(128), primary_key=True)
     sender_service = Column(String(50), primary_key=True, default="moderation")

@@ -1,8 +1,8 @@
+import uuid
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from src.models.base import Product, ProductStatus, ProcessedEvent, B2CCascadeOutbox
 from src.schemas.moderation import ModerationEventRequest
-
 
 def apply_moderation_decision(
     db: Session,
@@ -58,7 +58,6 @@ def apply_moderation_decision(
         "new_status": product.status.value
     }
 
-
 def _emit_b2c_cascade(db: Session, product_id: str, payload: ModerationEventRequest):
     cascade_payload = {
         "product_id": product_id,
@@ -67,14 +66,13 @@ def _emit_b2c_cascade(db: Session, product_id: str, payload: ModerationEventRequ
         "blocking_reason_id": payload.blocking_reason_id,
         "occurred_at": payload.occurred_at.isoformat()
     }
-    import uuid
     db.add(B2CCascadeOutbox(
         id=str(uuid.uuid4()),
         event_type="PRODUCT_BLOCKED",
         product_id=product_id,
-        payload=cascade_payload
+        payload=cascade_payload,
+        status="pending"
     ))
-
 
 def update_product_by_seller(db: Session, product_id: str, seller_id: str, update_data: dict) -> dict:
     product = db.query(Product).filter(Product.id == product_id).first()

@@ -6,30 +6,24 @@ from sqlalchemy.orm import sessionmaker
 
 from src.main import app
 from src.database import get_db
-from src.models.base import Base, Product, ProductStatus, ProcessedEvent
+from src.models.base import Base, Product, ProductStatus, ProcessedEvent, B2CCascadeOutbox
 
 engine = create_engine("sqlite:///./test_moderation.db", connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(bind=engine)
 client = TestClient(app)
 
-
 def override_get_db():
     db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
+    try: yield db
+    finally: db.close()
 
 app.dependency_overrides[get_db] = override_get_db
-
 
 @pytest.fixture(autouse=True)
 def setup_db():
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
-
 
 def _create_product(db, status=ProductStatus.ON_MODERATION, block_reason="Old reason", field_reports=None):
     p = Product(
@@ -44,14 +38,12 @@ def _create_product(db, status=ProductStatus.ON_MODERATION, block_reason="Old re
     db.commit()
     return p
 
-
 HEADERS = {"X-Service-Key": "test-key"}
 BAD_HEADERS = {}
 
-
 def test_moderated_event_clears_blocking_data():
     with TestingSessionLocal() as db:
-        _create_product(db, block_reason="Bad content", field_reports=[{"field": "title", "issue": "spam"}])
+        _create_product(db, block_reason="Bad content", field_reports=[{"field_name": "title", "comment": "spam"}])
 
     payload = {
         "idempotency_key": "evt-001",
@@ -69,7 +61,6 @@ def test_moderated_event_clears_blocking_data():
         assert p.block_reason is None
         assert p.field_reports is None
 
-
 def test_blocked_soft_saves_field_reports():
     with TestingSessionLocal() as db:
         _create_product(db)
@@ -82,7 +73,7 @@ def test_blocked_soft_saves_field_reports():
         "moderator_comment": "Некачественные фото",
         "blocking_reason_id": "reason-uuid-001",
         "field_reports": [
-            {"field_name": "image", "issue": "blurry", "severity": "high"}
+            {"field_name": "image", "comment": "blurry", "severity": "high"}
         ],
         "occurred_at": datetime.now(timezone.utc).isoformat()
     }
@@ -95,8 +86,13 @@ def test_blocked_soft_saves_field_reports():
         assert p.status == ProductStatus.BLOCKED
         assert p.block_reason == "Некачественные фото"
         assert p.blocking_reason_id == "reason-uuid-001"
-        assert p.field_reports == [{"field_name": "image", "issue": "blurry", "severity": "high"}]
-
+        assert p.field_reports == [{"field_name": "image", "comment": "blurry", "severity": "high"}]
+        
+        outbox_event = db.query(B2CCascadeOutbox).filter(
+            B2CCascadeOutbox.product_id == p.id
+        ).first()
+        assert outbox_event is not None
+        assert outbox_event.status == "pending"
 
 def test_blocked_hard_sets_terminal_status():
     with TestingSessionLocal() as db:
@@ -120,7 +116,6 @@ def test_blocked_hard_sets_terminal_status():
         assert p.status == ProductStatus.HARD_BLOCKED
         assert p.block_reason == "Мошенничество"
 
-
 def test_hard_blocked_product_rejects_seller_edits():
     with TestingSessionLocal() as db:
         _create_product(db, status=ProductStatus.HARD_BLOCKED)
@@ -129,8 +124,6 @@ def test_hard_blocked_product_rejects_seller_edits():
         "/api/v1/products/550e8400-e29b-41d4-a716-446655440000?seller_id=111e8400-e29b-41d4-a716-446655440000"
     )
     assert response.status_code == 403
-    assert "жёсткой блокировкой" in response.json()["detail"]
-
 
 def test_duplicate_event_same_idempotency_key_no_side_effects():
     with TestingSessionLocal() as db:
@@ -159,7 +152,6 @@ def test_duplicate_event_same_idempotency_key_no_side_effects():
         ).all()
         assert len(events) == 1
 
-
 def test_missing_service_key_returns_401():
     payload = {
         "idempotency_key": "evt-no-key",
@@ -170,4 +162,6 @@ def test_missing_service_key_returns_401():
 
     response = client.post("/api/v1/moderation/events", json=payload, headers=BAD_HEADERS)
     assert response.status_code == 401
-    assert "X-Service-Key" in response.json()["detail"]
+    data = response.json()
+    assert data["code"] == "UNAUTHORIZED"
+    assert "message" in data

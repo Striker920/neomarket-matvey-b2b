@@ -2,18 +2,12 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime
 
-
 class FieldReport(BaseModel):
     field_name: str
-    issue: str
+    comment: str
     severity: Optional[str] = None
 
-
 class ModerationEventRequest(BaseModel):
-    """
-    Схема события от Moderation Service.
-    Строго по спецификации neomarket-protocols/b2b/openapi.yaml
-    """
     idempotency_key: str = Field(..., description="UUID для идемпотентности")
     product_id: str = Field(..., description="ID товара")
     event_type: Literal["MODERATED", "BLOCKED"] = Field(..., description="Тип события")
