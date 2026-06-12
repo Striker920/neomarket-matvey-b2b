@@ -12,16 +12,13 @@ from src.core.exceptions import (
     global_exception_handler
 )
 
-# Создание таблиц
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="NeoMarket B2B Core - US-B2B-02")
 
-# Регистрация обработчиков исключений (ОБЯЗАТЕЛЬНО для работы {code, message})
 app.add_exception_handler(AppError, app_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(Exception, global_exception_handler)
 
-# Подключение роутеров
 app.include_router(skus_router)

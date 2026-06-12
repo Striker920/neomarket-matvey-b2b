@@ -33,12 +33,18 @@ class Product(Base):
 class SKU(Base):
     __tablename__ = "skus"
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    product_id = Column(String(36), ForeignKey("products.id"), nullable=False)
+    product_id = Column(String(36), ForeignKey("products.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     price = Column(Integer, nullable=False)
     stock_quantity = Column(Integer, default=0, nullable=False)
     article = Column(String(64), nullable=True, unique=True)
-    status = Column(SAEnum(SKUStatus), default=SKUStatus.ACTIVE, nullable=False) # Добавлено
+    
+    # Новые поля по контракту
+    discount = Column(Integer, default=0, nullable=False)
+    cost_price = Column(Integer, nullable=True)
+    reserved_quantity = Column(Integer, default=0, nullable=False)
+    status = Column(SAEnum(SKUStatus), default=SKUStatus.ACTIVE, nullable=False)  # <-- ДОБАВЛЕНО
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     product = relationship("Product", back_populates="skus")
@@ -50,6 +56,7 @@ class SKUImage(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     sku_id = Column(String(36), ForeignKey("skus.id"), nullable=False)
     url = Column(String(512), nullable=False)
+    ordering = Column(Integer, default=0, nullable=False)
     sku = relationship("SKU", back_populates="images")
 
 class SKUCharacteristic(Base):
@@ -67,15 +74,8 @@ class ModerationEventOutbox(Base):
     aggregate_id = Column(String(36), nullable=False)
     payload = Column(JSON, nullable=False)
     idempotency_key = Column(String(128), unique=True, nullable=False)
+    occurred_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     status = Column(String(20), default="pending")
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class B2CCascadeOutbox(Base):
-    __tablename__ = "b2c_cascade_outbox"
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    event_type = Column(String(50), nullable=False)
-    product_id = Column(String(36), nullable=False)
-    payload = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class ProcessedEvent(Base):
