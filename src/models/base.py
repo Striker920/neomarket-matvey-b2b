@@ -7,7 +7,7 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 class ProductStatus(str, Enum):
-    DRAFT = "DRAFT"
+    CREATED = "CREATED"  # <-- БЫЛО DRAFT, стало CREATED
     ON_MODERATION = "ON_MODERATION"
     MODERATED = "MODERATED"
     BLOCKED = "BLOCKED"
@@ -24,7 +24,7 @@ class Product(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     seller_id = Column(String(36), nullable=False)
     title = Column(String(255), nullable=False)
-    status = Column(SAEnum(ProductStatus), default=ProductStatus.DRAFT, nullable=False)
+    status = Column(SAEnum(ProductStatus), default=ProductStatus.CREATED, nullable=False)  # <-- ИЗМЕНЕНО
     block_reason = Column(String(500), nullable=True)
     blocking_reason_id = Column(String(36), nullable=True)
     field_reports = Column(JSON, nullable=True)
@@ -39,11 +39,10 @@ class SKU(Base):
     stock_quantity = Column(Integer, default=0, nullable=False)
     article = Column(String(64), nullable=True, unique=True)
     
-    # Новые поля по контракту
     discount = Column(Integer, default=0, nullable=False)
     cost_price = Column(Integer, nullable=True)
     reserved_quantity = Column(Integer, default=0, nullable=False)
-    status = Column(SAEnum(SKUStatus), default=SKUStatus.ACTIVE, nullable=False)  # <-- ДОБАВЛЕНО
+    status = Column(SAEnum(SKUStatus), default=SKUStatus.ACTIVE, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     

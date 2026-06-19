@@ -7,16 +7,30 @@ from src.models.base import Product, SKU, SKUImage, SKUCharacteristic, ProductSt
 from src.schemas.sku import SKUCreateRequest
 from src.core.exceptions import AppError
 
+def _get_product_snapshot(product: Product, sku_count: int) -> dict:
+    """Снимок состояния товара для outbox payload"""
+    return {
+        "product_id": product.id,
+        "seller_id": product.seller_id,
+        "title": product.title,
+        "status": product.status.value,
+        "skus_count": sku_count
+    }
+
 def create_sku(db: Session, data: SKUCreateRequest, seller_id: str) -> dict:
     product = db.query(Product).filter(Product.id == data.product_id).with_for_update().first()
     if not product:
         raise AppError("PRODUCT_NOT_FOUND", "Товар не найден", 404)
     
     if product.seller_id != seller_id:
-        raise AppError("FORBIDDEN", "Нет прав на управление этим товаром", 403)
+        raise AppError("FORBIDDEN", "Нет прав на управлением этим товаром", 403)
 
     if product.status == ProductStatus.HARD_BLOCKED:
         raise AppError("HARD_BLOCKED", "Невозможно добавить SKU к товару с жёсткой блокировкой", 403)
+
+    # Снимок ДО изменений (для PRODUCT_EDITED)
+    sku_count_before = db.query(func.count(SKU.id)).filter(SKU.product_id == data.product_id).scalar()
+    json_before = _get_product_snapshot(product, sku_count_before)
 
     sku_id = str(uuid.uuid4())
     sku = SKU(
@@ -39,33 +53,40 @@ def create_sku(db: Session, data: SKUCreateRequest, seller_id: str) -> dict:
         db.add(SKUCharacteristic(id=str(uuid.uuid4()), sku_id=sku.id, name=char.name, value=char.value))
 
     try:
-        # Подсчёт SKU (может вызвать autoflush)
         sku_count = db.query(func.count(SKU.id)).filter(SKU.product_id == data.product_id).scalar()
         triggered_moderation = False
         event_type = None
+        json_after = None
 
-        if sku_count == 1 and product.status == ProductStatus.DRAFT:
+        # Первый SKU: CREATED → ON_MODERATION + PRODUCT_CREATED
+        if sku_count == 1 and product.status == ProductStatus.CREATED:
             product.status = ProductStatus.ON_MODERATION
             triggered_moderation = True
             event_type = "PRODUCT_CREATED"
+            json_after = _get_product_snapshot(product, sku_count)
+        
+        # Re-moderation: MODERATED/BLOCKED → ON_MODERATION + PRODUCT_EDITED
         elif product.status in (ProductStatus.MODERATED, ProductStatus.BLOCKED):
             product.status = ProductStatus.ON_MODERATION
             triggered_moderation = True
             event_type = "PRODUCT_EDITED"
+            json_after = _get_product_snapshot(product, sku_count)
 
         if event_type:
-            json_after = {
+            payload = {
                 "product_id": product.id,
                 "seller_id": product.seller_id,
-                "title": product.title,
-                "status": product.status.value,
-                "skus_count": sku_count
+                "json_after": json_after
             }
+            # Для PRODUCT_EDITED добавляем json_before
+            if event_type == "PRODUCT_EDITED":
+                payload["json_before"] = json_before
+            
             db.add(ModerationEventOutbox(
                 id=str(uuid.uuid4()),
                 event_type=event_type,
                 aggregate_id=product.id,
-                payload={"product_id": product.id, "seller_id": product.seller_id, "json_after": json_after},
+                payload=payload,
                 idempotency_key=str(uuid.uuid4()),
                 occurred_at=datetime.utcnow()
             ))

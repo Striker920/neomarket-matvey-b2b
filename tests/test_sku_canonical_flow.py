@@ -24,7 +24,7 @@ def setup_db():
     yield
     Base.metadata.drop_all(bind=engine)
 
-def _create_product(db, status=ProductStatus.DRAFT, seller_id="seller-001"):
+def _create_product(db, status=ProductStatus.CREATED, seller_id="seller-001"):
     p = Product(id="550e8400-e29b-41d4-a716-446655440000", seller_id=seller_id, title="Test", status=status)
     db.add(p); db.commit(); return p
 
@@ -32,7 +32,7 @@ HEADERS = {"Authorization": "Bearer mock-token"}
 WRONG_OWNER_HEADERS = {"Authorization": "Bearer wrong-seller-token"}
 
 def test_first_sku_transitions_product_to_on_moderation():
-    with TestingSessionLocal() as db: _create_product(db, ProductStatus.DRAFT)
+    with TestingSessionLocal() as db: _create_product(db, ProductStatus.CREATED)
     payload = {"product_id": "550e8400-e29b-41d4-a716-446655440000", "name": "V1", "price": 0}
     response = client.post("/api/v1/skus", json=payload, headers=HEADERS)
     assert response.status_code == 201
@@ -48,6 +48,22 @@ def test_first_sku_transitions_product_to_on_moderation():
         p = db.get(Product, "550e8400-e29b-41d4-a716-446655440000")
         assert p.status == ProductStatus.ON_MODERATION
 
+def test_first_sku_emits_created_event_to_moderation():
+    with TestingSessionLocal() as db: _create_product(db, ProductStatus.CREATED)
+    payload = {"product_id": "550e8400-e29b-41d4-a716-446655440000", "name": "V1", "price": 1000}
+    response = client.post("/api/v1/skus", json=payload, headers=HEADERS)
+    assert response.status_code == 201
+    
+    with TestingSessionLocal() as db:
+        event = db.query(ModerationEventOutbox).filter(
+            ModerationEventOutbox.aggregate_id == "550e8400-e29b-41d4-a716-446655440000"
+        ).first()
+        assert event is not None
+        assert event.event_type == "PRODUCT_CREATED"
+        assert "json_after" in event.payload
+        assert event.payload["json_after"]["status"] == "ON_MODERATION"
+        assert event.payload["json_after"]["skus_count"] == 1
+
 def test_second_sku_no_state_change():
     with TestingSessionLocal() as db:
         p = _create_product(db, ProductStatus.ON_MODERATION)
@@ -58,6 +74,11 @@ def test_second_sku_no_state_change():
     with TestingSessionLocal() as db:
         p = db.get(Product, "550e8400-e29b-41d4-a716-446655440000")
         assert p.status == ProductStatus.ON_MODERATION
+        # Усиленная проверка: событий в outbox должно быть 0
+        events = db.query(ModerationEventOutbox).filter(
+            ModerationEventOutbox.aggregate_id == p.id
+        ).all()
+        assert len(events) == 0
 
 def test_add_sku_to_hard_blocked_returns_403():
     with TestingSessionLocal() as db: _create_product(db, ProductStatus.HARD_BLOCKED)
@@ -78,9 +99,13 @@ def test_add_sku_to_blocked_triggers_re_moderation():
         event = db.query(ModerationEventOutbox).filter(ModerationEventOutbox.aggregate_id == p.id).first()
         assert event is not None
         assert event.event_type == "PRODUCT_EDITED"
+        assert "json_before" in event.payload
+        assert "json_after" in event.payload
+        assert event.payload["json_before"]["status"] == "BLOCKED"
+        assert event.payload["json_after"]["status"] == "ON_MODERATION"
 
 def test_missing_owner_returns_403():
-    with TestingSessionLocal() as db: _create_product(db, ProductStatus.DRAFT, seller_id="owner-123")
+    with TestingSessionLocal() as db: _create_product(db, ProductStatus.CREATED, seller_id="owner-123")
     payload = {"product_id": "550e8400-e29b-41d4-a716-446655440000", "name": "V1", "price": 1000}
     response = client.post("/api/v1/skus", json=payload, headers=WRONG_OWNER_HEADERS)
     assert response.status_code == 403
@@ -94,7 +119,7 @@ def test_product_not_found_returns_404():
 
 def test_duplicate_article_returns_409():
     with TestingSessionLocal() as db: 
-        p = _create_product(db, ProductStatus.DRAFT)
+        p = _create_product(db, ProductStatus.CREATED)
         db.add(SKU(id="sku-1", product_id=p.id, name="First", price=1000, article="ART-001"))
         db.commit()
     
