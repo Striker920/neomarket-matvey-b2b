@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
 from sqlalchemy.orm import Session
 from uuid import UUID
 from src.config import settings
@@ -8,8 +8,6 @@ from src.schemas.product import (
     ProductResponse,
     ProductUpdateRequest,
     ProductDetailResponse,
-    CatalogResponse,
-    ProductCatalogItem,
 )
 from src.schemas.seller_products import SellerProductsResponse, SellerProductItem
 from src.services.product_service import ProductService
@@ -58,7 +56,7 @@ def update_product(
     return updated_product
 
 
-@router.delete("/{product_id}", status_code=204, response_class=Response)
+@router.delete("/{product_id}")
 def delete_product(
     product_id: UUID,
     seller_id: UUID = Depends(get_current_seller_id),
@@ -66,70 +64,58 @@ def delete_product(
 ):
     service = ProductService(db)
     service.delete_product(product_id=str(product_id), seller_id=str(seller_id))
-    return Response(status_code=204)
+    return {"ok": True}
 
 
 @router.get("/")
 def get_products(
     request: Request,
     db: Session = Depends(get_db),
-    x_service_key: Optional[str] = Header(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    category: Optional[str] = None,
-    search: Optional[str] = None,
-    sort: Optional[str] = None,
-    ids: Optional[str] = None,
     status: Optional[str] = None,
+    search: Optional[str] = None,
 ):
-    is_b2c_mode = x_service_key == settings.B2C_SERVICE_KEY if x_service_key else False
-
-    if is_b2c_mode:
-        service = ProductService(db)
-        id_list = None
-        if ids:
-            id_list = [i.strip() for i in ids.split(",") if i.strip()]
-
-        products, total = service.get_catalog_products(
-            limit=limit,
-            offset=offset,
-            category=category,
-            search=search,
-            sort=sort,
-            ids=id_list
+    """
+    Режим продавца — требует JWT.
+    УБРАНО: B2C-режим (теперь на /api/v1/public/products)
+    """
+    auth_header = request.headers.get("Authorization")
+    if not (auth_header and auth_header.startswith("Bearer ")):
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "UNAUTHORIZED", "message": "Missing or invalid authorization"}
         )
 
-        items = [service._format_for_catalog(p) for p in products]
-        return CatalogResponse(items=items, total_count=total, limit=limit, offset=offset)
+    from jose import jwt as jose_jwt
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jose_jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        seller_id_str = payload.get("sub")
+        if not seller_id_str:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "UNAUTHORIZED", "message": "Invalid token"}
+            )
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "UNAUTHORIZED", "message": "Invalid token"}
+        )
 
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        from jose import jwt as jose_jwt
-        token = auth_header.split(" ")[1]
-        try:
-            payload = jose_jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-            seller_id_str = payload.get("sub")
-            if seller_id_str:
-                service = ProductService(db)
-                items, total = service.get_seller_products_list(
-                    seller_id=seller_id_str,
-                    limit=limit,
-                    offset=offset,
-                    status=status,
-                    search=search
-                )
-                return SellerProductsResponse(
-                    items=items,
-                    total_count=total,
-                    limit=limit,
-                    offset=offset
-                )
-        except Exception:
-            pass
-
-    raise HTTPException(
-        status_code=401,
-        detail={"code": "UNAUTHORIZED", "message": "Missing or invalid authorization"}
+    service = ProductService(db)
+    items, total = service.get_seller_products_list(
+        seller_id=seller_id_str,
+        limit=limit,
+        offset=offset,
+        status=status,
+        search=search
+    )
+    return SellerProductsResponse(
+        items=items,
+        total_count=total,
+        limit=limit,
+        offset=offset
     )
 
 
@@ -137,17 +123,14 @@ def get_products(
 def get_product(
     product_id: UUID,
     seller_id: UUID = Depends(get_current_seller_id),
-    db: Session = Depends(get_db),
-    x_service_key: Optional[str] = Header(None)
+    db: Session = Depends(get_db)
 ):
     service = ProductService(db)
-
-    is_b2c_mode = x_service_key == settings.B2C_SERVICE_KEY if x_service_key else False
 
     product = service.get_product_by_id(
         str(product_id),
         str(seller_id),
-        is_b2c_mode=is_b2c_mode
+        is_b2c_mode=False
     )
 
     if not product:

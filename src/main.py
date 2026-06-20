@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from src.api import products
+from src.api import public_products  # ✅ НОВЫЙ роутер
 from src.api import skus
 from src.api import invoices
 from src.api import inventory
@@ -16,6 +17,7 @@ Base.metadata.create_all(bind=engine)
 register_exception_handlers(app)
 
 app.include_router(products.router)
+app.include_router(public_products.router)  # ✅ НОВЫЙ роутер
 app.include_router(skus.router)
 app.include_router(invoices.router)
 app.include_router(inventory.router)

@@ -33,8 +33,9 @@ class TestB2CCatalog:
         db_session.add(product)
         db_session.commit()
 
+        # ✅ ИСПРАВЛЕНО: URL /api/v1/public/products
         response = client.get(
-            "/api/v1/products",
+            "/api/v1/public/products",
             headers={"X-Service-Key": settings.B2C_SERVICE_KEY}
         )
 
@@ -68,8 +69,9 @@ class TestB2CCatalog:
         db_session.add(product)
         db_session.commit()
 
+        # ✅ ИСПРАВЛЕНО: URL /api/v1/public/products
         response = client.get(
-            "/api/v1/products",
+            "/api/v1/public/products",
             headers={"X-Service-Key": settings.B2C_SERVICE_KEY}
         )
 
@@ -80,7 +82,8 @@ class TestB2CCatalog:
 
     def test_catalog_missing_service_key_returns_401(self, client, db_session):
         """No X-Service-Key → 401"""
-        response = client.get("/api/v1/products")
+        # ✅ ИСПРАВЛЕНО: URL /api/v1/public/products
+        response = client.get("/api/v1/public/products")
 
         assert response.status_code == 401
 
@@ -110,8 +113,9 @@ class TestB2CCatalog:
         db_session.add(product)
         db_session.commit()
 
+        # ✅ ИСПРАВЛЕНО: URL /api/v1/public/products
         response = client.get(
-            "/api/v1/products",
+            "/api/v1/public/products",
             headers={"X-Service-Key": settings.B2C_SERVICE_KEY}
         )
 
@@ -185,8 +189,9 @@ class TestB2CCatalog:
         db_session.commit()
 
         ids_param = f"{visible_product.id},{hidden_product.id},{deleted_product.id}"
+        # ✅ ИСПРАВЛЕНО: URL /api/v1/public/products
         response = client.get(
-            f"/api/v1/products?ids={ids_param}",
+            f"/api/v1/public/products?ids={ids_param}",
             headers={"X-Service-Key": settings.B2C_SERVICE_KEY}
         )
 
