@@ -1,0 +1,7 @@
+venv
+.env
+.venv
+AGENTS.md
+MEMORY.md
+test.db
+__pycache__/
