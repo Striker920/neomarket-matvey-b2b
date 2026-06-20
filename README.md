@@ -1,45 +1,46 @@
-# Реализация US-B2B-03: Списание резерва при доставке (Fulfill)
+# Исправление US-B2B-10: форма ответа fulfill
 
-## Описание задачи
+## Описание
+Реализованы финальные исправления для полного соответствия спецификации `b2b/openapi.yaml`.
 
-Реализован endpoint `POST /api/v1/inventory/fulfill` — финальная точка жизненного цикла резервирования. Когда заказ доставлен и товар физически у покупателя, зарезервированное количество уменьшается, чтобы освободить место для новых заказов. Без fulfill со временем весь инвентарь окажется «зарезервированным», продавец не сможет принимать новые заказы, а складская аналитика будет врать.
+## Внесённые исправления
 
-## Соответствие канон-флоу (flows/b2b-flows.md#fulfill-delivery)
+### 1. Форма ответа fulfill (`src/services/fulfill_service.py`)
+**Было:** `{"ok": True}`
+**Стало:** `{"order_id": "...", "status": "FULFILLED", "processed_at": "..."}` согласно `b2b/openapi.yaml:1735-1741`
 
-Реализованы все сценарии из канона:
+### 2. Формат timestamp
+`processed_at` в формате ISO 8601 с суффиксом `Z` (UTC).
 
-### Happy path
-- ✅ **fulfill_decreases_reserved_quantity** — `reserved_quantity` уменьшается на указанное количество
-- ✅ **active_quantity_unchanged** — `active_quantity` не меняется (товар уже физически у покупателя)
+### 3. Идемпотентность
+`FulfillOperation` сохраняет новую форму ответа, поэтому повторный вызов возвращает тот же `InventoryOrderResponse`.
 
-### Unhappy path
-- ✅ **idempotent_fulfill_no_double_deduction** — повторный запрос с тем же `order_id` возвращает 200, данные не изменяются
-- ✅ **missing_service_key_returns_401** — отсутствие заголовка `X-Service-Key` возвращает 401
+### 4. Обновлены тесты (`tests/test_fulfill.py`)
+- `test_fulfill_decreases_reserved_quantity` — проверяет `order_id`, `status == "FULFILLED"`, `processed_at`
+- `test_active_quantity_unchanged` — проверяет новую форму ответа
+- `test_idempotent_fulfill_no_double_deduction` — проверяет совпадение ответов при повторном вызове
 
-## Соответствие OpenAPI (b2b/openapi.yaml)
+## ADR: Формат timestamp в ответе
 
-- ✅ Путь endpoint: `POST /api/v1/inventory/fulfill` (строка 986 спецификации)
-- ✅ Заголовок авторизации: `X-Service-Key`
-- ✅ Тело запроса: `{order_id, items: [{sku_id, quantity}]}`
-- ✅ Ответ: `{ok: true}` при успехе
-- ✅ Коды ошибок: `SKU_NOT_FOUND` (404), `INSUFFICIENT_RESERVATION` (409)
+**Контекст:** `processed_at` должен быть в формате ISO 8601.
 
-## ADR: Реализация идемпотентности по order_id
+**Выбрано:** `datetime.utcnow().isoformat() + "Z"` — UTC время с суффиксом Z.
 
-**Контекст:** При fulfill необходимо гарантировать, что повторный вызов от B2C (например, после таймаута) не приведёт к двойному списанию `reserved_quantity`.
-
-**Рассмотренные альтернативы:**
-
-1. **Отдельная таблица `fulfilled_orders` (FulfillOperation)** — запись о каждом успешном fulfill с `order_id` и результатом.
-2. **Поле `last_fulfilled_order` в JSON SKU** — хранить ID последнего заказа, списавшего резерв.
-3. **Проверка через `reserved_quantity`** — если количество уже уменьшено, не списывать повторно.
-
-**Выбрано:** Вариант 1 — отдельная таблица `FulfillOperation`.
-
-**Критерии выбора:**
-- **Риск двойного списания при retry:** Вариант 1 полностью исключает двойное списание — проверка по `order_id` происходит до любой модификации данных. Вариант 2 ненадёжен при параллельных запросах к разным SKU одного заказа. Вариант 3 создаёт race condition.
-- **Сложность реализации:** Вариант 1 прост в реализации (один запрос SELECT перед UPDATE) и легко масштабируется. Вариант 2 требует обновления нескольких JSON-полей. Вариант 3 требует сложных блокировок.
-
-**Дополнительные преимущества:** Таблица `FulfillOperation` даёт возможность аудита всех операций fulfill и лёгкую отладку при инцидентах.
+**Критерии:**
+- **Соответствие спецификации:** ISO 8601 с явным указанием UTC
+- **Совместимость:** Стандартный формат для API
 
 ## Лог тестов (DoD)
+platform win32 -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0 -- C:\Users\matvey_chertovikov\AppData\Local\Programs\Python\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: C:\neomarket-matvey-b2b-10-12-test-fulfill-endpoint
+plugins: anyio-4.13.0
+collected 6 items                                                                      
+
+tests/test_fulfill.py::TestFulfill::test_fulfill_decreases_reserved_quantity PASSED [ 16%]
+tests/test_fulfill.py::TestFulfill::test_active_quantity_unchanged PASSED        [ 33%]
+tests/test_fulfill.py::TestFulfill::test_idempotent_fulfill_no_double_deduction PASSED [ 50%]
+tests/test_fulfill.py::TestFulfill::test_missing_service_key_returns_401 PASSED  [ 66%]
+tests/test_fulfill.py::TestFulfill::test_sku_not_found_returns_404 PASSED        [ 83%]
+tests/test_fulfill.py::TestFulfill::test_insufficient_reservation_returns_409 PASSED [100%]
+
