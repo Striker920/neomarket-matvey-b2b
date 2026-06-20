@@ -8,7 +8,13 @@ from src.database import get_db
 from src.models.base import Base, Product, SKU, ProductStatus, ModerationEventOutbox
 
 engine = create_engine("sqlite:///./test_canon.db", connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(bind=engine)
+
+# <-- ИСПРАВЛЕНО: явно autoflush=False, чтобы воспроизводить production-поведение
+TestingSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,  # <-- ОБЯЗАТЕЛЬНО autoflush=False
+    bind=engine
+)
 client = TestClient(app)
 
 def override_get_db():
@@ -74,7 +80,6 @@ def test_second_sku_no_state_change():
     with TestingSessionLocal() as db:
         p = db.get(Product, "550e8400-e29b-41d4-a716-446655440000")
         assert p.status == ProductStatus.ON_MODERATION
-        # Усиленная проверка: событий в outbox должно быть 0
         events = db.query(ModerationEventOutbox).filter(
             ModerationEventOutbox.aggregate_id == p.id
         ).all()
