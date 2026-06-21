@@ -4,6 +4,7 @@ from uuid import UUID
 from datetime import datetime
 from enum import Enum
 
+
 class InvoiceItemRequest(BaseModel):
     sku_id: UUID
     quantity: int = Field(..., gt=0, description="Количество в накладной")
@@ -15,6 +16,7 @@ class InvoiceItemRequest(BaseModel):
             raise ValueError('Quantity must be positive')
         return v
 
+
 class InvoiceCreateRequest(BaseModel):
     items: List[InvoiceItemRequest] = Field(..., min_length=1)
     
@@ -25,15 +27,26 @@ class InvoiceCreateRequest(BaseModel):
             raise ValueError('At least one item is required')
         return v
 
+
 class InvoiceStatusEnum(str, Enum):
-    PENDING = "PENDING"
+    """
+    Статусы накладной по спецификации b2b/openapi.yaml:
+    - CREATED: накладная только что создана
+    - PARTIALLY_ACCEPTED: частично принята на склад
+    - ACCEPTED: полностью принята
+    - CANCELLED: отменена
+    """
+    CREATED = "CREATED"
+    PARTIALLY_ACCEPTED = "PARTIALLY_ACCEPTED"
     ACCEPTED = "ACCEPTED"
-    REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
+
 
 class InvoiceItemResponse(BaseModel):
     sku_id: UUID
     quantity: int
     accepted_quantity: Optional[int] = None
+
 
 class InvoiceResponse(BaseModel):
     id: UUID

@@ -1,4 +1,3 @@
-# src/api/invoices.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -11,6 +10,7 @@ from src.services.invoice_service import InvoiceService
 
 router = APIRouter(prefix="/api/v1/invoices", tags=["Invoices"])
 
+
 @router.post("/", response_model=InvoiceResponse, status_code=201)
 def create_invoice(
     invoice_data: InvoiceCreateRequest,
@@ -22,7 +22,7 @@ def create_invoice(
     
     - Только SKU из MODERATED товаров
     - Только свои SKU (проверка seller_id)
-    - Статус накладной: PENDING
+    - Статус накладной: CREATED (по спецификации OpenAPI)
     """
     service = InvoiceService(db)
     

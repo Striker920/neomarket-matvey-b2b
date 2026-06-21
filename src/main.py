@@ -9,8 +9,14 @@ from src.api import categories
 from src.database import Base, engine, SessionLocal
 from src.exceptions import register_exception_handlers
 
+# ВАЖНО: импортируем ВСЕ модели ПЕРЕД create_all,
+# чтобы SQLAlchemy зарегистрировал их в Base.metadata
+from src.models import product
+from src.models import invoice
+
 app = FastAPI()
 
+# Теперь create_all создаст все таблицы: products, invoices и др.
 Base.metadata.create_all(bind=engine)
 
 register_exception_handlers(app)
